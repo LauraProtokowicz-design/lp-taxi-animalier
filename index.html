@@ -469,7 +469,85 @@ function action(a){
 render();
 window.addEventListener("beforeunload",persist);
 if("serviceWorker" in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));
-})();
+// === AJOUT PÉAGES AUTOMATIQUES GOOGLE ===
+if(!data.googleMapsKey){
+  data.googleMapsKey="";
+}
+
+async function lpLoadGoogle(){
+  if(window.google?.maps?.importLibrary)return;
+  const key=data.googleMapsKey||prompt("Clé API Google Maps :");
+  if(!key)return;
+  data.googleMapsKey=key.trim();
+  persist();
+  await new Promise((resolve,reject)=>{
+    const s=document.createElement("script");
+    s.src="https://maps.googleapis.com/maps/api/js?key="+encodeURIComponent(data.googleMapsKey)+"&v=weekly";
+    s.onload=resolve;
+    s.onerror=()=>reject(new Error("Impossible de charger Google Maps."));
+    document.head.appendChild(s);
+  });
+}
+
+const lpOldCalculateRoute=calculateRoute;
+
+calculateRoute=async function(e){
+  await lpOldCalculateRoute(e);
+
+  if(!routeResult)return;
+
+  try{
+    await lpLoadGoogle();
+    if(!window.google?.maps?.importLibrary)return;
+
+    const {Route}=await google.maps.importLibrary("routes");
+
+    const key=data.geoapifyKey;
+    const [a,b]=await Promise.all([
+      geocodeAddress(routeResult.depart,key),
+      geocodeAddress(routeResult.arrivee,key)
+    ]);
+
+    const {routes}=await Route.computeRoutes({
+      origin:{lat:a.lat,lng:a.lon},
+      destination:{lat:b.lat,lng:b.lon},
+      travelMode:"DRIVING",
+      extraComputations:["TOLLS"],
+      routeModifiers:{
+        vehicleInfo:{emissionType:"GASOLINE"}
+      },
+      fields:[
+        "distanceMeters",
+        "durationMillis",
+        "travelAdvisory"
+      ]
+    });
+
+    const tollInfo=routes?.[0]?.travelAdvisory?.tollInfo;
+    const toll=tollInfo?.estimatedPrice?.[0];
+
+    if(toll){
+      const amount=Number(toll.units||0)+Number(toll.nanos||0)/1000000000;
+      const totalToll=amount*(routeResult.allerRetour?2:1);
+
+      routeResult.lines=routeResult.lines.filter(x=>x[0]!=="Péages");
+      routeResult.lines.push(["Péages",totalToll]);
+      routeResult.total+=totalToll;
+
+      notify("Itinéraire + péages calculés ✓");
+    }else if(tollInfo){
+      routeResult.lines=routeResult.lines.filter(x=>x[0]!=="Péages");
+      routeResult.lines.push(["Péages","Montant indisponible"]);
+      notify("Péage détecté — montant indisponible");
+    }
+
+    render();
+  }catch(err){
+    console.error("Péage Google :",err);
+    notify("Itinéraire calculé — péage indisponible");
+    render();
+  }
+};})();
 </script>
 </body>
 </html>
