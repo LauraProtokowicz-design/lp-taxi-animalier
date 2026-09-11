@@ -524,7 +524,7 @@ calculateRoute=async function(e){
     });
 
     const tollInfo=routes?.[0]?.travelAdvisory?.tollInfo;
-    const toll=tollInfo?.estimatedPrice?.[0];
+    const toll=tollInfo?.estimatedPrices?.[0];
 
     if(toll){
       const amount=Number(toll.units||0)+Number(toll.nanos||0)/1000000000;
